@@ -38,7 +38,7 @@ class TimeInterval
     {
         if (!is_numeric($timestamp))
         {
-            throw new \RuntimeException("Neplatná vstup timestamp");
+            throw new \RuntimeException("Neplatný vstup timestamp");
         }
 
         // zjisteni minuleho/budouciho casu
