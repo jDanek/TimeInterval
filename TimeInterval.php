@@ -1,303 +1,231 @@
 <?php
 
-namespace Jdanek;
+namespace Jdanek\Utils;
 
 /**
  * Trida pro zpracovani casovych intervalu na slovni podobu
- * 
+ *
  * Pouziti: TimeInterval::toString($timestamp);
- * 
+ *
  * @author jDanek <jdanek.eu>
  */
 class TimeInterval
 {
+    const PAST = 'past', FUTURE = 'future';
+    const SECOND = 'second', MINUTE = 'minute', HOUR = 'hour', DAY = 'day', WEEK = 'week', MONTH = 'month', YEAR = 'year';
 
-    const LAST_TIME = "před", FUTURE_TIME = "za";
+    /** @var array */
+    private $config = array(
+        'units'  => array(self::SECOND, self::MINUTE, self::HOUR, self::DAY, self::WEEK, self::MONTH, self::YEAR),
+        'length' => array(60, 60, 24, 7, 4.35, 12),
+    );
+
+    /** @var array */
+    public $trans = array(
+        'cs' => array(
+            self::SECOND => array(
+                'singular' => array(1 => 'sekunda', 4 => 'sekundu', 7 => 'sekundou'),
+                'plural'   => array(2 => 'sekund', 4 => 'sekundy', 7 => 'sekundami'),
+            ),
+            self::MINUTE => array(
+                'singular' => array(1 => 'minuta', 4 => 'minutu', 7 => 'minutou'),
+                'plural'   => array(2 => 'minut', 4 => 'minuty', 7 => 'minutami'),
+            ),
+            self::HOUR   => array(
+                'singular' => array(1 => 'hodina', 4 => 'hodinu', 7 => 'hodinou'),
+                'plural'   => array(2 => 'hodin', 4 => 'hodiny', 7 => 'hodinami'),
+            ),
+            self::DAY    => array(
+                'singular' => array(1 => 'den', 4 => 'den', 7 => 'dnem'),
+                'plural'   => array(2 => 'dnů', 4 => 'dny', 7 => 'dny'),
+            ),
+            self::WEEK   => array(
+                'singular' => array(1 => 'týden', 4 => 'týden', 7 => 'týdnem'),
+                'plural'   => array(2 => 'týdnů', 4 => 'týdny', 7 => 'týdny'),
+            ),
+            self::MONTH  => array(
+                'singular' => array(1 => 'měsíc', 4 => 'měsíc', 7 => 'měsícem'),
+                'plural'   => array(2 => 'měsíců', 4 => 'měsíce', 7 => 'měsíci'),
+            ),
+            self::YEAR   => array(
+                'singular' => array(1 => 'rok', 4 => 'rok', 7 => 'rokem'),
+                'plural'   => array(2 => 'roků', 4 => 'roky', 7 => 'roky'),
+            ),
+            'time'       => array(
+                self::PAST   => array(
+                    'preposition' => 'před', // en help: "before"
+                    'day'         => 'včera', // en help: "yesterday"
+                    'adjectives'  => 'minulý', // en help: "last"
+                ),
+                self::FUTURE => array(
+                    'preposition' => 'za', // en help: "after"
+                    'day'         => 'zítra', // en help: "tomorrow"
+                    'adjectives'  => 'příští', // en help: "next"
+                ),
+            ),
+        ),
+    );
+
+    /** @var string */
+    private $lang = 'cs';
+
+    /** @var string */
+    private $status;
 
     /** @var int */
-    private static $index = 0;
+    private $difference;
 
-    /** @var array */
-    private static $units = array("sekundy", "minuty", "hodiny", "dny", "týdny", "měsíce", "roky");
+    /** @var int|string */
+    private $quantity;
 
-    /** @var array */
-    private static $length = array("60", "60", "24", "7", "4.35", "12");
-
-    /** @var array */
-    private static $finalString = array('status' => '', 'quantity' => '', 'unit' => '');
+    /** @var string */
+    private $unit;
 
     /**
-     * Vraci casovy usek ve slovni podobe
-     * 
-     * @example "za 3 hodiny"
-     * @param int $timestamp
-     * @return string
-     * @throws \RuntimeException
+     * Kontruktor
+     *
+     * @param int    $timestamp
+     * @param string $lang
+     * @throws \InvalidArgumentException
      */
-    public static function toString($timestamp)
+    public function __construct($timestamp, $lang = 'cs')
     {
         if (!is_numeric($timestamp))
         {
-            throw new \RuntimeException("Neplatný vstup timestamp");
+            throw new \InvalidArgumentException("Expected timestamp");
         }
 
-        // zjisteni minuleho/budouciho casu
-        $result = self::pastOrFuture($timestamp);
+        // nastaveni lokalizace
+        $this->setLang($lang);
 
-        // zjisteni jednotky
-        $counter = count(self::$length) - 1;
-        for (self::$index = 0; $result['difference'] >= self::$length[self::$index] && self::$index < $counter; self::$index++)
-        {
-            $result['difference'] = $result['difference'] / self::$length[self::$index];
-        }
-
-        // zaokrouhleni
-        $result['difference'] = round($result['difference']);
-
-        // rozhodovani
-        switch (self::$units[self::$index]) {
-            case "sekundy":
-                self::seconds($result['string'], $result['difference']);
-                break;
-
-            case "minuty":
-                self::minutes($result['string'], $result['difference']);
-                break;
-
-            case "hodiny":
-                self::hours($result['string'], $result['difference']);
-                break;
-
-            case "dny":
-                self::days($result['string'], $result['difference']);
-                break;
-
-            case "týdny":
-                self::weeks($result['string'], $result['difference']);
-                break;
-
-            case "měsíce":
-                self::months($result['string'], $result['difference']);
-                break;
-
-            case "roky":
-                self::years($result['string'], $result['difference']);
-                break;
-            default:
-                break;
-        }
-
-        // navrat stringu
-        return implode(" ", self::$finalString);
-    }
-
-    /**
-     * Ziskani informace o casu, zda je minuly / budouci
-     * 
-     * @param int $timestamp
-     * @return array pole s rozdilem casu a slovesnou formou
-     */
-    private static function pastOrFuture($timestamp)
-    {
+        // vypocet rozdilu casu
         $time = time();
-        $result = array();
+        $this->status = ($time > $timestamp ? self::PAST : self::FUTURE);
+        $this->difference = ($time > $timestamp ? ($time - $timestamp) : ($timestamp - $time));
 
-        if ($time >= $timestamp)
+        // ziskani jednotky
+        $counter = count($this->config['length']) - 1;
+        for ($i = 0; $this->difference >= $this->config['length'][$i] && $i < $counter; $i++)
         {
-            // cas minuly
-            $result = array('difference' => ($time - $timestamp), 'string' => self::LAST_TIME);
-        }
-        else
-        {
-            // cas budouci
-            $result = array('difference' => ($timestamp - $time), 'string' => self::FUTURE_TIME);
+            $this->difference = $this->difference / $this->config['length'][$i];
         }
 
-        return $result;
+        // priprava pro zpracovani
+        $this->quantity = round($this->difference);
+        $this->unit = $this->config['units'][$i];
     }
 
     /**
-     * Sestaveni vyjadreni pro sekundy
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
+     * [STATIC] Ziskani zpracovaneho timestampu
+     *
+     * @param int    $timestamp
+     * @param string $lang
+     * @return \self
      */
-    private static function seconds($status, $difference)
+    public static function toString($timestamp, $lang = 'cs')
     {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "sekundou" : "sekundu");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "jednou" : "jednu");
-        }
-        else
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "sekundami" : "sekund");
-        }
+        $instance = new self($timestamp, $lang);
+        return $instance->process();
     }
 
     /**
-     * Sestaveni vyjadreni pro minuty
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
+     * Pridani prekladu
+     *
+     * @example units: second, minute, hour, day, week, month, year
+     * @example array(
+     *      'en'=>array(
+     *              'second'=>array(
+     *                  'singular'=>array(1=>'second', ...),
+     *                  'plural'=>'array(2=>'seconds', ...),
+     *              ),
+     *              ...
+     *            ));
+     * @param array $trans
      */
-    private static function minutes($status, $difference)
+    public function addTranslate(array $trans)
     {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "minutou" : "minutu");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "jednou" : "jednu");
-        }
-        else
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "minutami" : "minut");
-        }
+        $this->trans = array_merge($this->trans, $trans);
     }
 
     /**
-     * Sestaveni vyjadreni pro hodiny
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
+     * Nastaveni langcode pouziteho prekladu (ex.: CS / EN / DE ...)
+     *
+     * @param string $lang
      */
-    private static function hours($status, $difference)
+    public function setLang($lang)
     {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "hodinou" : "hodinu");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "");
-        }
-        elseif (2 <= $difference && 5 > $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "hodinami" : "hodiny");
-        }
-        elseif ($difference >= 5)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "hodinami" : "hodin");
-        }
+        $this->lang = mb_strtolower($lang);
     }
 
     /**
-     * Sestaveni vyjadreni pro dny
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
+     * Zpracovani timestampu na slovni vyjadreni
      */
-    private static function days($status, $difference)
+    public function process()
     {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
+        // kontrola lokalizace
+        if (!isset($this->trans[$this->lang]))
         {
-            self::$finalString['status'] = (self::LAST_TIME === $status ? "" : "");
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "včera" : "zítra");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "");
+            $this->setLang('cs');
         }
-        else
+
+        // priprava
+        $result = array('s' => $this->status, 'q' => $this->quantity, 'u' => '');
+
+        // rozhodovaci struktura
+        if (1 == $this->quantity)
         {
-            if (1 < $difference && 5 > $difference)
-            {
-                self::$finalString['unit'] = (self::LAST_TIME === $status ? "dny" : "dny");
-            }
-            else
-            {
-                self::$finalString['unit'] = (self::LAST_TIME === $status ? "dny" : "dní");
+            $pad = (self::PAST === $this->status ? 7 : 4);
+            $result['u'] = $this->trans[$this->lang][$this->unit]['singular'][$pad];
+
+            switch ($this->unit) {
+                case self::DAY:
+                    $result['s'] = null;
+                    $result['q'] = '';
+                    $result['u'] = $this->trans[$this->lang]['time'][$this->status]['day'];
+                    break;
+                case self::WEEK:
+                    $result['q'] = '';
+                default:
+                    break;
             }
         }
+        elseif (2 == $this->difference)
+        {
+            $pad = (self::PAST === $this->status ? 7 : 4);
+            $result['u'] = $this->trans[$this->lang][$this->unit]['plural'][$pad];
+
+            switch ($this->unit) {
+                case self::WEEK:
+                    $result['s'] = null;
+                    $result['q'] = $this->trans[$this->lang]['time'][$this->status]['adjectives'];
+                    $result['u'] = $this->trans[$this->lang][$this->unit]['singular'][1];
+                    break;
+
+                default:
+                    break;
+            }
+        }
+        elseif (2 <= $this->quantity && 4 >= $this->quantity)
+        {
+            $pad = (self::PAST === $this->status ? 7 : 4);
+            $result['u'] = $this->trans[$this->lang][$this->unit]['plural'][$pad];
+        }
+        elseif (12 == $this->quantity && self::MONTH === $this->unit)
+        {
+            $pad = (self::PAST === $this->status ? 7 : 1);
+
+            $result['s'] = null;
+            $result['q'] = $this->trans[$this->lang]['time'][$this->status]['preposition'];
+            $result['u'] = $this->trans[$this->lang][self::YEAR]['singular'][$pad];
+        }
+        elseif (5 <= $this->quantity)
+        {
+            $pad = (self::PAST === $this->status ? 7 : 2);
+            $result['u'] = $this->trans[$this->lang][$this->unit]['plural'][$pad];
+        }
+
+        // vystup
+        $s = (null === $result['s'] ? '' : $this->trans[$this->lang]['time'][$result['s']]['preposition']);
+        return "{$s} {$result['q']} {$result['u']}";
     }
-
-    /**
-     * Sestaveni vyjadreni pro tydny
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
-     */
-    private static function weeks($status, $difference)
-    {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "týdnem" : "týden");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "");
-        }
-        elseif (2 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "týdny" : "týden");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : "příští");
-        }
-        elseif (2 < $difference && 5 > $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "týdny" : "týdny");
-        }
-        elseif (5 <= $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "týdny" : "týdnů");
-        }
-    }
-
-    /**
-     * Sestaveni vyjadreni pro mesice
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
-     */
-    private static function months($status, $difference)
-    {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "měsicem" : "měsíc");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "");
-        }
-        elseif (12 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "rokem" : "rok");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "příští");
-        }
-        elseif (2 <= $difference && 5 > $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "měsíci" : "měsíce");
-        }
-        elseif (5 <= $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "měsíci" : "měsíců");
-        }
-    }
-
-    /**
-     * Sestaveni vyjadreni pro roky
-     * 
-     * @param string $status     minuly / budouci cas
-     * @param int    $difference rozdil casu mezi zadanym a aktualnim
-     */
-    private static function years($status, $difference)
-    {
-        self::$finalString['status'] = (self::LAST_TIME === $status ? self::LAST_TIME : self::FUTURE_TIME);
-        self::$finalString['quantity'] = (self::LAST_TIME === $status ? $difference : $difference);
-
-        if (1 == $difference)
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "rokem" : "rok");
-            self::$finalString['quantity'] = (self::LAST_TIME === $status ? "" : "");
-        }
-        else
-        {
-            self::$finalString['unit'] = (self::LAST_TIME === $status ? "roky" : "roky");
-        }
-    }
-
 }
